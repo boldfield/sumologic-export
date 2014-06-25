@@ -96,6 +96,6 @@ Otherwise, [shoot me an email](mailto:r@rdegges.com)!
 
 ## Changelog
 
-v0.0.1: 06-24-2014
+v0.0.1: 06-25-2014
 
     - First release!  Woo!
