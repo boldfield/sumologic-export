@@ -163,11 +163,11 @@ class Exporter(object):
             total_logs = self.get_count(job_url)
 
             # If there are logs to be downloaded, let's do it.
-            if not total_logs:
+            if total_logs:
                 print ' - Downloading %d logs.' % total_logs
 
                 logs = []
-                for log in get_logs(job_url, total_logs):
+                for log in self.get_logs(job_url, total_logs):
                     logs.append(log)
 
                 print ' - Writing log file: exports/%s.json' % prettify(date)
@@ -210,7 +210,6 @@ class Exporter(object):
                     }),
                     cookies = self.cookies,
                 )
-
                 if resp.cookies:
                     self.cookies = resp.cookies
 
@@ -230,8 +229,7 @@ class Exporter(object):
         :rtype: int
         :returns: The amount of logs found in the specified job results.
         """
-        finished = False
-        while not finished:
+        while True:
             try:
                 resp = get(
                     job_url,
