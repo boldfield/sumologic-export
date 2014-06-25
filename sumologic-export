@@ -1,0 +1,348 @@
+#!/usr/bin/env python
+"""
+sumologic-export
+~~~~~~~~~~~~~~~~
+
+Export your Sumologic logs easily and quickly.
+
+Usage:
+    sumologic-export configure
+    sumologic-export
+    sumologic-export <start> <stop>
+    sumologic-export
+        (<start> | -s <start> | --start <start>)
+        [(<stop> | -t <stop> | --stop <stop>)]
+    sumologic-export (-h | --help)
+    sumologic-export (-v | --version)
+"""
+
+
+from datetime import datetime, timedelta
+from json import dumps, loads
+from os import chmod, mkdir
+from os.path import exists, expanduser
+from subprocess import call
+from time import sleep
+
+from docopt import docopt
+from requests import get, post
+
+
+##### GLOBALS
+VERSION = '0.0.1'
+CONFIG_FILE = expanduser('~/.sumo')
+
+
+# Pretty print datetime objects.
+prettify = lambda x: x.strftime('%Y-%m-%d')
+
+
+class Exporter(object):
+    """Abstraction for exporting Sumologic logs."""
+
+    # Default time increment to move forward by.
+    INCREMENT = timedelta(days=1)
+
+    # Default timerange to use if no dates are specified.
+    DEFAULT_TIMERANGE = timedelta(days=30)
+
+    # Sumologic API constants.
+    SUMOLOGIC_URL = 'https://api.sumologic.com/api/v1/search/jobs'
+    SUMOLOGIC_HEADERS = {
+        'content-type': 'application/json',
+        'accept': 'application/json',
+    }
+
+    # Amount of time to wait for API response.
+    TIMEOUT = 10
+
+    # Sumologic timezone to specify.
+    TIMEZONE = 'PST'
+
+    # Amount of time to pause before requesting Sumologic logs.  60 seconds
+    # seems to be a good amount of time.
+    SLEEP_SECONDS = 60
+
+    # The amount of logs to download from Sumologic per page.  The higher this
+    # is, the more memory is used, but the faster the exports are.
+    MESSAGES_PER_PAGE = 10000
+
+    def __init__(self):
+        """
+        Initialize this exporter.
+
+        This includes:
+
+        - Loading credentials.
+        - Prepping the environment.
+        - Setting up class variables.
+        """
+        if not exists(CONFIG_FILE):
+            print 'No credentials found! Run sumologic-export configure'
+            raise SystemExit()
+
+        if not exists('exports'):
+            mkdir('exports')
+
+        with open(CONFIG_FILE, 'rb') as cfg:
+            creds = loads(cfg.read())
+            self.credentials = (creds['email'], creds['password'])
+
+    def init_dates(self, start, stop):
+        """
+        Validate and initialize the date inputs we get from the user.
+
+        We'll:
+
+        - Ensure the dates are valid.
+        - Perform cleanup.
+        - If no dates are specified, we'll set defaults.
+        """
+        if start:
+            try:
+                self.start = datetime.strptime(start, '%Y-%m-%d').replace(hour=0, minute=0, second=0, microsecond=0)
+            except:
+                print 'Invalid date format. Format must be YYYY-MM-DD.'
+                raise SystemExit(1)
+
+            if self.start > datetime.now():
+                print 'Start date must be in the past!'
+                raise SystemExit(1)
+        else:
+            self.start = (datetime.now() - self.DEFAULT_TIMERANGE).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if stop:
+            try:
+                self.stop = datetime.strptime(stop, '%Y-%m-%d').replace(hour=0, minute=0, second=0, microsecond=0)
+            except:
+                print 'Invalid date format. Format must be YYYY-MM-DD.'
+                raise SystemExit(1)
+
+            if self.stop > datetime.now():
+                print 'Stop date must be in the past!'
+                raise SystemExit(1)
+        else:
+            self.stop = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def export(self, start, stop):
+        """
+        Export all Sumologic logs from start to stop.
+
+        All logs will be downloaded one day at a time, and put into a local
+        folder named 'exports'.
+
+        :param str start: The datetime at which to start downloading logs.
+        :param str stop: The datetime at which to stop downloading logs.
+        """
+        # Validate / cleanup the date inputs.
+        self.init_dates(start stop)
+
+        print 'Exporting all logs from: %s to %s... This may take a while.\n' % (
+            prettify(self.start),
+            prettify(self.stop),
+        )
+
+        print 'Exporting Logs'
+        print '--------------'
+
+        date = self.start
+        while date < self.stop:
+
+            # Schedule the Sumologic job.
+            job_url = self.create_job(date, date + self.INCREMENT)
+            print '-', prettify(date)
+
+            # Pause to allow Sumologic to process this job.
+            sleep(self.SLEEP_SECONDS)
+
+            # Figure out how many logs there are for the given date.
+            total_logs = self.get_count(job_url)
+
+            # If there are logs to be downloaded, let's do it.
+            if not total_logs:
+                print ' - Downloading %d logs.' % total_logs
+
+                logs = []
+                for log in get_logs(job_url, total_logs):
+                    logs.append(log)
+
+                print ' - Writing log file: exports/%s.json' % prettify(date)
+                with open('exports/%s.json' % prettify(date), 'wb') as exports:
+                    exports.write(dumps(logs, indent=2, sort_keys=True))
+
+                print ' - Compressing log file: exports/%s.json' % prettify(date)
+                call(['gzip', '-9', 'exports/%s.json' % prettify(date)])
+            else:
+                print ' - No logs found.'
+
+            # Move forward.
+            date += self.INCREMENT
+
+        print '\nFinished downloading logs!'
+
+    def create_job(self, start, stop):
+        """
+        Request all Sumologic logs for the specified date range.
+
+        :param datetime start: The date to start.
+        :param datetime stop: The date to stop.
+
+        :rtype: string
+        :returns: The URL of the job.
+        """
+        finished = False
+        while not finished:
+            try:
+                resp = post(
+                    self.SUMOLOGIC_URL,
+                    auth = self.credentials,
+                    headers = self.SUMOLOGIC_HEADERS,
+                    timeout = self.TIMEOUT,
+                    data = dumps({
+                        'query': '*',
+                        'from': start.isoformat(),
+                        'to': stop.isoformat(),
+                        'timeZone': self.TIMEZONE,
+                    }),
+                    cookies = self.cookies,
+                )
+
+                if resp.cookies:
+                    self.cookies = resp.cookies
+
+                if resp.status_code == 202:
+                    return '%s/%s' % (self.SUMOLOGIC_URL, resp.json()['id'])
+
+                raise
+            except:
+                sleep(1)
+
+    def get_count(self, job_url):
+        """
+        Given a Sumologic job URL, figure out how many logs exist.
+
+        :param str job_url: The job URL.
+
+        :rtype: int
+        :returns: The amount of logs found in the specified job results.
+        """
+        finished = False
+        while not finished:
+            try:
+                resp = get(
+                    job_url,
+                    auth = self.credentials,
+                    headers = self.SUMOLOGIC_HEADERS,
+                    timeout = self.TIMEOUT,
+                    cookies = self.cookies,
+                )
+                if resp.cookies:
+                    self.cookies = resp.cookies
+
+                if resp.status_code == 200:
+                    json = resp.json()
+                    if json['state'] == 'DONE GATHERING RESULTS':
+                        return json['messageCount']
+
+                raise
+            except:
+                sleep(1)
+
+    def get_logs(self, job_url, count):
+        """
+        Iterate through all Sumologic logs for the given job.
+
+        :param str job_url: The job URL.
+        :param int count: The number of logs to retrieve.
+
+        :rtype: generator
+        :returns: A generator which returns a single JSON log until all logs have
+            been retrieved.
+        """
+        for page in xrange(0, count / self.MESSAGES_PER_PAGE):
+            while True:
+                try:
+                    resp = get(
+                        job_url + '/messages',
+                        auth = self.credentials,
+                        headers = self.SUMOLOGIC_HEADERS,
+                        timeout = self.TIMEOUT,
+                        params = {
+                            'limit': self.MESSAGES_PER_PAGE,
+                            'offset': self.MESSAGES_PER_PAGE * page,
+                        },
+                        cookies = self.cookies,
+                    )
+                    if resp.cookies:
+                        self.cookies = resp.cookies
+
+                    if resp.status_code == 200:
+                        json = resp.json()
+                        for log in json['messages']:
+                            yield log['map']
+
+                        break
+
+                    raise
+                except:
+                    sleep(1)
+
+
+def configure():
+    """
+    Read in and store the user's Sumologic credentials.
+
+    Credentials will be stored in ~/.sumo
+    """
+    print 'Initializing `sumologic-export`...\n'
+    print "To get started, we'll need to get your Sumologic credentials."
+
+    finished = False
+    while not finished:
+        email = raw_input('Enter your email: ').strip()
+        password = raw_input('Enter your password: ').strip()
+        if not (email or password):
+            print '\nYour Sumologic credentials are needed to continue!\n'
+            continue
+
+        print 'Your API credentials are stored in the file:', CONFIG_FILE, '\n'
+        print 'Run sumologic-export for usage information.'
+
+        with open(CONFIG_FILE, 'wb') as cfg:
+            cfg.write(dumps({
+                'email': email,
+                'password': password,
+            }, indent=2, sort_keys=True))
+
+        # Make the configuration file only accessible to the current user --
+        # this makes the credentials a bit more safe.
+        chmod(CONFIG_FILE, 0600)
+
+        finished = True
+
+
+def main(args):
+    """
+    Handle command line options.
+
+    :param args: Command line arguments.
+    """
+    if args['-v']:
+        print VERSION
+        raise SystemExit()
+
+    elif args['configure']:
+        configure()
+        raise SystemExit()
+
+    if args['<start>']:
+        pass
+
+    if args['<stop>']:
+
+    exporter = Exporter()
+    exporter.export(args['<start>'], args['<stop>'])
+
+
+if __name__ == '__main__':
+    main(docopt(__doc__, version=VERSION))
