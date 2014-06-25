@@ -85,9 +85,6 @@ $ ls exports
 
 For full usage information, run `sumologic-export -h`.
 
-Written by Randall Degges <http://www.rdegges.com/>.
-```
-
 
 ## Help
 
