@@ -194,8 +194,7 @@ class Exporter(object):
         :rtype: string
         :returns: The URL of the job.
         """
-        finished = False
-        while not finished:
+        while True:
             try:
                 resp = post(
                     self.SUMOLOGIC_URL,
@@ -299,8 +298,7 @@ def configure():
     print 'Initializing `sumologic-export`...\n'
     print "To get started, we'll need to get your Sumologic credentials."
 
-    finished = False
-    while not finished:
+    while True:
         email = raw_input('Enter your email: ').strip()
         password = raw_input('Enter your password: ').strip()
         if not (email or password):
@@ -320,7 +318,7 @@ def configure():
         # this makes the credentials a bit more safe.
         chmod(CONFIG_FILE, 0600)
 
-        finished = True
+        break
 
 
 def main(args):
