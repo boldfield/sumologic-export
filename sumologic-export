@@ -90,6 +90,8 @@ class Exporter(object):
             creds = loads(cfg.read())
             self.credentials = (creds['email'], creds['password'])
 
+        self.cookies = None
+
     def init_dates(self, start, stop):
         """
         Validate and initialize the date inputs we get from the user.
@@ -137,7 +139,7 @@ class Exporter(object):
         :param str stop: The datetime at which to stop downloading logs.
         """
         # Validate / cleanup the date inputs.
-        self.init_dates(start stop)
+        self.init_dates(start, stop)
 
         print 'Exporting all logs from: %s to %s... This may take a while.\n' % (
             prettify(self.start),
@@ -336,11 +338,6 @@ def main(args):
     elif args['configure']:
         configure()
         raise SystemExit()
-
-    if args['<start>']:
-        pass
-
-    if args['<stop>']:
 
     exporter = Exporter()
     exporter.export(args['<start>'], args['<stop>'])
