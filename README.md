@@ -8,14 +8,11 @@ Easily export your Sumologic log data.
 ## Purpose
 
 At [Stormpath](https://stormpath.com) we use
-[Sumologic](http://www.sumologic.com) to store our server logs.  Unfortunately,
-I've had numerous problems accessing and working with these logs, so figured I'd
-do analysis on them locally.
+[Sumologic](http://www.sumologic.com) to store our server logs.
 
-I was surprised to find that the Sumologic API was quite tricky to use, and
-relatively unused -- so I wrote this exporter to make the extraction of
-Sumologic logs as simple as possible for people like me -- who want to work with
-their Sumologic logs themselves.
+We were preparing to export our logs for safe keeping, so I wrote this tool.  It
+uses the Sumologic API and downloads every log stored over a predefined time
+period.
 
 `sumologic-export` will grab every single Sumologic log you've ever written
 and store it in gzipped JSON files.
