@@ -260,7 +260,7 @@ class Exporter(object):
         :returns: A generator which returns a single JSON log until all logs have
             been retrieved.
         """
-        for page in xrange(0, count / self.MESSAGES_PER_PAGE):
+        for page in xrange(0, (count / self.MESSAGES_PER_PAGE) + 1):
             while True:
                 try:
                     resp = get(
