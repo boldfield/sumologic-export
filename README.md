@@ -93,6 +93,12 @@ Otherwise, [shoot me an email](mailto:r@rdegges.com)!
 
 ## Changelog
 
+v0.0.2: 01-19-2015
+
+    - Fixing off-by-one error in pagination logic. This was causing us to NOT
+      download the last page of logs :(  Thanks
+      [@sumoway](https://github.com/sumoway) for the report!
+
 v0.0.1: 06-25-2014
 
     - First release!  Woo!
