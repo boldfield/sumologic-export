@@ -8,7 +8,7 @@ setup(
 
     # Basic package information:
     name = 'sumologic-export',
-    version = '0.0.1',
+    version = '0.0.2',
     scripts = ['sumologic-export'],
 
     # Packaging options:
